@@ -1,9 +1,13 @@
+from pathlib import Path
+
 import pandas as pd
 
 
-def load_data():
-    df = pd.read_csv("E:/2026-2027/ML/Placement_Prediction/Data/placement_predict_50k Dataset (2).csv")
-    return df
+DATA_FILE = Path(__file__).resolve().parents[3] / "Data" / "Raw Data" / "placement_predict_50k Dataset (2).csv"
+
+
+def load_data(dataset_path=None):
+    return pd.read_csv(dataset_path or DATA_FILE)
 
 
 def summarize(df):
