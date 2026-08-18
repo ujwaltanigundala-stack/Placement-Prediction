@@ -1,6 +1,10 @@
-"""Logistic Regression model training, evaluation, diagrams, and live placement prediction (Module 2 Sessions 20-22 / Session 09)."""
-
 from pathlib import Path
+import sys
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -16,6 +20,7 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 import config
 from src.data_utils import clean_data, load_cleaned
+
 
 LOGISTIC_NUMERIC_FEATURES = [
     "SGPA_Sem1", "SGPA_Sem2", "SGPA_Sem3", "SGPA_Sem4",
