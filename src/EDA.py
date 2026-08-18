@@ -18,7 +18,7 @@ from src.data_utils import load_raw, numeric_cols
 
 PLOT_FILENAMES = [
     "placement_status.png", "missing_values.png", "cgpa_distribution.png",
-    "cgpa_histogram.png", "attendance_histogram.png", "cgpa_boxplot_by_status.png",
+    "attendance_histogram.png", "cgpa_boxplot_by_status.png",
     "cgpa_attendance.png", "placement_rate_by_tier.png", "top_correlations.png",
     "sgpa_trend.png", "correlation_heatmap.png",
 ]
@@ -45,7 +45,7 @@ def _plot_histogram(data, column, filename, title, bins=20):
 
 def _plot_boxplot(data, value_column, category_column, filename, title):
     fig, ax = plt.subplots(figsize=(7, 4))
-    sns.boxplot(data=data, x=category_column, y=value_column, ax=ax, palette="Set2")
+    sns.boxplot(data=data, x=category_column, y=value_column, hue=category_column, legend=False, ax=ax, palette="Set2")
     ax.set_title(title)
     ax.set_xlabel(category_column)
     ax.set_ylabel(value_column)
@@ -76,7 +76,6 @@ def generate_all_plots(df=None):
         sns.histplot(data=data, x="CGPA", kde=True, ax=ax, color="#3867e8")
         ax.set_title("CGPA distribution")
         _save(fig, "cgpa_distribution.png")
-        _plot_histogram(data, "CGPA", "cgpa_histogram.png", "CGPA histogram")
     if "AttendancePercent" in data:
         _plot_histogram(data, "AttendancePercent", "attendance_histogram.png", "Attendance histogram")
     if {"CGPA", "PlacementStatus"}.issubset(data.columns):
@@ -107,7 +106,7 @@ def generate_all_plots(df=None):
         fig, ax = plt.subplots(figsize=(10, 8))
         sns.heatmap(corr, cmap="coolwarm", center=0, ax=ax)
         ax.set_title("Feature correlation heatmap")
-        _save(fig, "correation_heatmap.png")
+        _save(fig, "correlation_heatmap.png")
     sgpas = [f"SGPA_Sem{i}" for i in range(1, 9) if f"SGPA_Sem{i}" in data]
     if sgpas and "PlacementStatus" in data:
         trend = data.groupby("PlacementStatus")[sgpas].mean()

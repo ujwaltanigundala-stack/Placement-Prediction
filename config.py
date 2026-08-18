@@ -5,8 +5,8 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent
 RAW_DATA_PATH = BASE_DIR / "Data" / "Raw Data" / "placement_predict_50k Dataset (2).csv"
 CLEANED_DATA_PATH = BASE_DIR / "Data" / "processed Data" / "cleaned_data.csv"
-STATIC_DIR = BASE_DIR / "Frontend" / "Example" / "static"
-PLOTS_DIR = STATIC_DIR / "plots"
+STATIC_DIR = BASE_DIR / "Frontend" / "static"
+PLOTS_DIR = BASE_DIR / "Output" / "plots"
 REPORTS_DIR = BASE_DIR / "Output" / "Report"
 EDA_REPORT_PATH = REPORTS_DIR / "eda_summary_report.txt"
 

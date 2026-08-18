@@ -3,7 +3,7 @@ from pathlib import Path
 import pandas as pd
 
 
-DATA_FILE = Path(__file__).resolve().parents[3] / "Data" / "Raw Data" / "placement_predict_50k Dataset (2).csv"
+DATA_FILE = Path(__file__).resolve().parents[2] / "Data" / "Raw Data" / "placement_predict_50k Dataset (2).csv"
 
 
 def load_data(dataset_path=None):
