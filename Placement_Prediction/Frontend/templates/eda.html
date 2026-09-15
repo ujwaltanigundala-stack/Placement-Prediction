@@ -1,7 +1,12 @@
 {% extends "base.html" %}
 {% block title %}EDA · Placement Prediction{% endblock %}
+
 {% block content %}
-<section class="page-intro"><p class="eyebrow">EXPLORATORY DATA ANALYSIS</p><h1>Placement insights</h1><p>Complete analysis of <strong>{{ dataset_name }}</strong> on one page.</p></section>
+<section class="page-intro">
+    <p class="eyebrow">EXPLORATORY DATA ANALYSIS</p>
+    <h1>Exploratory Data Analysis (EDA)</h1>
+    <p>Comprehensive statistical overview, data distributions, correlations, and visual insights of <strong>{{ dataset_name }}</strong>.</p>
+</section>
 
 <section class="card hero-card"><div class="card-heading"><div><h2>Dataset overview</h2><p>Initial data-quality checks and placement indicators.</p></div><span class="status-pill">{{ overview.rows }} records</span></div><div class="dataset-info"><div class="info-box"><h3>{{ overview.rows }}</h3><p>Rows</p></div><div class="info-box"><h3>{{ overview.cols }}</h3><p>Columns</p></div><div class="info-box"><h3>{{ overview.duplicate_rows }}</h3><p>Duplicate rows</p></div><div class="info-box"><h3>{{ overview.anomaly_rate if overview.anomaly_rate is not none else '—' }}{% if overview.anomaly_rate is not none %}%{% endif %}</h3><p>Anomaly rate</p></div></div></section>
 

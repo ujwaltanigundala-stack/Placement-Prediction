@@ -6,26 +6,88 @@ from flask import (Flask, flash, redirect, render_template, request,
                    send_from_directory, session, url_for)
 from werkzeug.utils import secure_filename
 
-from models.load import load_data, summarize
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import config
+from src.data_utils import calculate_baseline_metrics, clean_data, load_raw as load_data
 from src.EDA import (PLOT_FILENAMES, generate_all_plots, get_bivariate_stats, get_correlation_stats,
                      get_multivariate_stats, get_overview_stats, get_univariate_stats)
-from src.data_utils import clean_data
 from src.feature_eng import MISSING_VALUE_CONCEPTS, build_encoded_splits, build_scaled_splits, scaling_columns
 from src.linear_regression import (calculate_salary_prediction, generate_regression_diagrams,
                                    train_regression_model)
 from src.logistic_regression import (generate_logistic_diagrams, predict_placement_status,
                                      train_logistic_regression)
+from src.regularization import (generate_regularization_diagrams, predict_placement_regularized,
+                                predict_salary_regularized, select_features_with_elasticnet,
+                                select_features_with_lasso, train_regularized_classification,
+                                train_regularized_regression)
+from src.decision_tree import (generate_decision_tree_diagrams, predict_placement_tree,
+                               train_decision_tree_classifier, train_decision_tree_regressor)
+from src.random_forest import (generate_random_forest_diagrams, predict_placement_rf,
+                               train_random_forest_classifier)
+from src.model_diagnostics import analyze_bias_variance
+from src.boosting import (generate_boosting_diagrams, predict_placement_boosting,
+                          train_boosting_models)
+from src.modern_boosting import (generate_modern_boosting_diagrams, predict_placement_modern,
+                                 train_modern_boosting_benchmarks)
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = config.SECRET_KEY
 app.config["UPLOAD_FOLDER"] = Path(app.root_path) / "uploads"
 app.config["UPLOAD_FOLDER"].mkdir(exist_ok=True)
+
+# In-memory model cache to avoid redundant 50k-row retraining on every HTTP request
+_MODEL_CACHE = {}
+
+
+def get_dataset_cache_key():
+    return session.get("dataset_path", "default")
+
+
+def get_cached_rf(df, dataset_key):
+    cache_key = ("rf", dataset_key)
+    if cache_key not in _MODEL_CACHE:
+        rf_data = train_random_forest_classifier(df=df, n_estimators=100)
+        rf_diagrams = generate_random_forest_diagrams(model_data=rf_data)
+        _MODEL_CACHE[cache_key] = (rf_data, rf_diagrams)
+    return _MODEL_CACHE[cache_key]
+
+
+def get_cached_dt(df, dataset_key, criterion, max_depth):
+    cache_key = ("dt", dataset_key, criterion, max_depth)
+    if cache_key not in _MODEL_CACHE:
+        dt_clf = train_decision_tree_classifier(df=df, criterion=criterion, max_depth=max_depth)
+        dt_reg = train_decision_tree_regressor(df=df, max_depth=max_depth)
+        dt_diagrams = generate_decision_tree_diagrams(dt_clf, dt_reg)
+        _MODEL_CACHE[cache_key] = (dt_clf, dt_reg, dt_diagrams)
+    return _MODEL_CACHE[cache_key]
+
+
+def get_cached_bv(df, dataset_key):
+    cache_key = ("bv", dataset_key)
+    if cache_key not in _MODEL_CACHE:
+        _MODEL_CACHE[cache_key] = analyze_bias_variance(df=df)
+    return _MODEL_CACHE[cache_key]
+
+
+def get_cached_boosting(df, dataset_key):
+    cache_key = ("boosting", dataset_key)
+    if cache_key not in _MODEL_CACHE:
+        b_data = train_boosting_models(df=df, n_estimators=100)
+        b_diagrams = generate_boosting_diagrams(model_data=b_data)
+        _MODEL_CACHE[cache_key] = (b_data, b_diagrams)
+    return _MODEL_CACHE[cache_key]
+
+
+def get_cached_modern_boosting(df, dataset_key):
+    cache_key = ("modern_boosting", dataset_key)
+    if cache_key not in _MODEL_CACHE:
+        m_data = train_modern_boosting_benchmarks(df=df)
+        m_diagrams = generate_modern_boosting_diagrams(model_data=m_data)
+        _MODEL_CACHE[cache_key] = (m_data, m_diagrams)
+    return _MODEL_CACHE[cache_key]
 
 
 def current_dataset_path():
@@ -39,6 +101,12 @@ def current_dataset_path():
 @app.route("/")
 def index_page():
     return redirect(url_for("load_page"))
+
+
+@app.route("/plots/<path:filename>")
+def serve_plot(filename):
+    """Serve dynamically generated analysis and model plots from Output/plots directory."""
+    return send_from_directory(config.PLOTS_DIR, filename)
 
 
 @app.route("/load", methods=["GET", "POST"])
@@ -62,53 +130,49 @@ def load_page():
                 session["dataset_path"] = str(saved_path)
                 session["dataset_name"] = dataset.filename
                 session.pop("plots_dataset", None)
-                flash("Dataset uploaded successfully. Open EDA to analyse it.", "success")
+                _MODEL_CACHE.clear()
+                flash("Dataset uploaded successfully.", "success")
                 return redirect(url_for("load_page"))
 
-    df = load_data(current_dataset_path())
-    summary = summarize(df)
+    raw_df = load_data(current_dataset_path())
     return render_template(
         "load.html",
-        shape=summary["shape"],
-        columns=summary["columns"],
-        preview=df.head(10).to_dict(orient="records"),
-        dataset_name=session.get("dataset_name", "Placement prediction dataset"),
+        dataset_name=session.get("dataset_name", "Default placement dataset"),
+        shape=raw_df.shape,
+        columns=raw_df.columns.tolist(),
+        preview=raw_df.head(15).to_dict(orient="records"),
     )
-
-
-@app.route("/plots/<path:filename>")
-def serve_plot(filename):
-    """Serve dynamically generated analysis and model plots from Output/plots directory."""
-    return send_from_directory(config.PLOTS_DIR, filename)
 
 
 @app.route("/eda")
 @app.route("/eda/<section>")
 def eda_page(section="overview"):
-    if section != "overview":
-        return redirect(url_for("eda_page"))
-    df = load_data(current_dataset_path())
+    raw_df = load_data(current_dataset_path())
     uploaded_path = current_dataset_path()
     if uploaded_path and session.get("plots_dataset") != str(uploaded_path):
-        generate_all_plots(df)
+        generate_all_plots(raw_df)
         session["plots_dataset"] = str(uploaded_path)
     elif not uploaded_path and not all((config.PLOTS_DIR / plot).exists() for plot in PLOT_FILENAMES):
-        generate_all_plots(df)
+        generate_all_plots(raw_df)
+
+    plots = [url_for("serve_plot", filename=filename) for filename in PLOT_FILENAMES]
     return render_template(
         "eda.html",
         dataset_name=session.get("dataset_name", "Placement prediction dataset"),
-        overview=get_overview_stats(df),
-        univariate=get_univariate_stats(df),
-        bivariate=get_bivariate_stats(df),
-        multivariate=get_multivariate_stats(df),
-        correlation=get_correlation_stats(df),
-        plots=[url_for("serve_plot", filename=plot) for plot in PLOT_FILENAMES if (config.PLOTS_DIR / plot).exists()],
+        section=section,
+        overview=get_overview_stats(raw_df),
+        univariate=get_univariate_stats(raw_df),
+        bivariate=get_bivariate_stats(raw_df),
+        multivariate=get_multivariate_stats(raw_df),
+        correlation=get_correlation_stats(raw_df),
+        plots=plots,
     )
 
 
 @app.route("/feature-engg", methods=["GET", "POST"])
 def feature_engg_page():
     raw_df = load_data(current_dataset_path())
+
     missing_percent = raw_df.isna().mean().mul(100)
     missing_summary = [
         {
@@ -172,7 +236,7 @@ def feature_engg_page():
     req_form = request.form if request.method == "POST" else {}
     active_folder = request.args.get("folder", req_form.get("active_folder", ""))
 
-    if req_form.get("model_type") == "linear" or ("cgpa" in req_form and "attendance" not in req_form):
+    if req_form.get("model_type") == "linear" or ("cgpa" in req_form and "attendance" not in req_form and "reg_model" not in req_form):
         try:
             lin_cgpa = float(req_form.get("cgpa", default_lin_cgpa))
             lin_coding = float(req_form.get("coding_score", default_lin_coding))
@@ -216,7 +280,7 @@ def feature_engg_page():
     default_log_attendance = 85.0
     default_log_softskills = 4.0
 
-    if req_form.get("model_type") == "logistic" or "attendance" in req_form:
+    if req_form.get("model_type") == "logistic" or ("attendance" in req_form and "reg_model" not in req_form):
         try:
             log_cgpa = float(req_form.get("cgpa", default_log_cgpa))
             log_coding = float(req_form.get("coding_score", default_log_coding))
@@ -249,6 +313,12 @@ def feature_engg_page():
         current_prediction=logistic_prediction,
     )
 
+    # --- Session 19 Regularization Models & Overfitting Diagnostics ---
+    is_reg_submit = req_form.get("model_type") == "regularization" or "reg_model" in req_form
+    reg_context = get_regularization_context(cleaned_df, req_form if is_reg_submit else None)
+    if is_reg_submit:
+        active_folder = "regularization-output"
+
     return render_template(
         "feature_engg.html",
         dataset_name=session.get("dataset_name", "Placement prediction dataset"),
@@ -268,7 +338,69 @@ def feature_engg_page():
         logistic_diagrams=logistic_diagrams,
         logistic_inputs=logistic_inputs,
         active_folder=active_folder,
+        raw_preview=raw_df.head(10).to_dict(orient="records"),
+        raw_columns=raw_df.columns.tolist(),
+        **reg_context,
     )
+
+
+def get_regularization_context(cleaned_df, req_form=None):
+    """Train regularized models, compute metrics/diagrams, and parse live inference."""
+    req_form = req_form or {}
+    reg_model_data = train_regularized_regression(cleaned_df)
+    clf_model_data = train_regularized_classification(cleaned_df)
+    reg_diagrams = generate_regularization_diagrams(cleaned_df, reg_model_data, clf_model_data)
+    lasso_feature_info = select_features_with_lasso(cleaned_df, target_col="PlacementStatus")
+    elastic_feature_info = select_features_with_elasticnet(cleaned_df, target_col="PlacementStatus")
+
+    defaults = {
+        "reg_model": "ridge",
+        "cgpa": 8.5,
+        "coding_score": 80.0,
+        "interview_score": 75.0,
+        "aptitude_score": 70.0,
+        "softskills": 4.0,
+        "attendance": 85.0,
+        "internships": 2,
+        "projects": 3,
+    }
+
+    try:
+        chosen_reg_model = req_form.get("reg_model", defaults["reg_model"])
+        reg_inputs = {
+            "CGPA": float(req_form.get("cgpa", defaults["cgpa"])),
+            "CodingTestScore": float(req_form.get("coding_score", defaults["coding_score"])),
+            "MockInterviewScore": float(req_form.get("interview_score", defaults["interview_score"])),
+            "AptitudeTestScore": float(req_form.get("aptitude_score", defaults["aptitude_score"])),
+            "SoftSkillsRating": float(req_form.get("softskills", defaults["softskills"])),
+            "AttendancePercent": float(req_form.get("attendance", defaults["attendance"])),
+            "Internships": float(req_form.get("internships", defaults["internships"])),
+            "Projects": float(req_form.get("projects", defaults["projects"])),
+        }
+    except (ValueError, TypeError):
+        chosen_reg_model = defaults["reg_model"]
+        reg_inputs = {
+            "CGPA": defaults["cgpa"],
+            "CodingTestScore": defaults["coding_score"],
+            "MockInterviewScore": defaults["interview_score"],
+            "AptitudeTestScore": defaults["aptitude_score"],
+            "SoftSkillsRating": defaults["softskills"],
+            "AttendancePercent": defaults["attendance"],
+            "Internships": defaults["internships"],
+            "Projects": defaults["projects"],
+        }
+
+    return {
+        "reg_model_data": reg_model_data,
+        "clf_model_data": clf_model_data,
+        "reg_diagrams": reg_diagrams,
+        "lasso_feature_info": lasso_feature_info,
+        "elastic_feature_info": elastic_feature_info,
+        "chosen_reg_model": chosen_reg_model,
+        "reg_inputs": reg_inputs,
+        "regularized_salary_pred": predict_salary_regularized(reg_inputs, model_type=chosen_reg_model, reg_bundle=reg_model_data),
+        "regularized_placement_pred": predict_placement_regularized(reg_inputs, model_type=chosen_reg_model, clf_bundle=clf_model_data),
+    }
 
 
 @app.route("/linear-regression", methods=["GET", "POST"])
@@ -281,5 +413,136 @@ def logistic_regression_page():
     return redirect(url_for("feature_engg_page", folder="logistic-output"))
 
 
+@app.route("/decision_tree", methods=["GET", "POST"])
+@app.route("/decision-tree", methods=["GET", "POST"])
+def decision_tree_page():
+    return redirect(url_for("tree_models_page"))
+
+
+@app.route("/tree_models", methods=["GET", "POST"])
+@app.route("/tree-models", methods=["GET", "POST"])
+def tree_models_page():
+    raw_df = load_data(current_dataset_path())
+    cleaned_df, _ = clean_data(raw_df, save=False)
+    dataset_key = get_dataset_cache_key()
+    
+    req_form = request.form if request.method == "POST" else {}
+    action = req_form.get("action", "")
+    
+    criterion = req_form.get("criterion", "entropy")
+    try:
+        max_depth = int(req_form.get("max_depth", 3))
+    except (ValueError, TypeError):
+        max_depth = 3
+        
+    selected_predictor = req_form.get("predictor_model", "random_forest")
+    
+    candidate_inputs = {
+        "CGPA": float(req_form.get("CGPA", 7.8)),
+        "CodingTestScore": float(req_form.get("CodingTestScore", 75.0)),
+        "MockInterviewScore": float(req_form.get("MockInterviewScore", 70.0)),
+        "AptitudeTestScore": float(req_form.get("AptitudeTestScore", 72.0)),
+        "AttendancePercent": float(req_form.get("AttendancePercent", 85.0)),
+        "SoftSkillsRating": float(req_form.get("SoftSkillsRating", 4.0)),
+        "Internships": float(req_form.get("Internships", 2)),
+        "Projects": float(req_form.get("Projects", 3)),
+    }
+    
+    # 1. Decision Tree models and plots (cached by params)
+    dt_clf, dt_reg, dt_diagrams = get_cached_dt(cleaned_df, dataset_key, criterion, max_depth)
+    
+    # 2. Random Forest and Bagging models and plots (cached)
+    rf_data, rf_diagrams = get_cached_rf(cleaned_df, dataset_key)
+    
+    # 3. Bias-Variance Analysis (cached)
+    bv_data = get_cached_bv(cleaned_df, dataset_key)
+    
+    # 4. Live Prediction
+    tree_prediction = None
+    active_folder = request.args.get("folder", "tree-output")
+    
+    if action == "tune_tree":
+        active_folder = "tree-output"
+    elif action == "predict_candidate":
+        active_folder = "tree-predictor-output"
+        if selected_predictor == "random_forest":
+            tree_prediction = predict_placement_rf(rf_data, candidate_inputs)
+        else:
+            tree_prediction = predict_placement_tree(candidate_inputs, dt_clf)
+            
+    return render_template(
+        "tree_models.html",
+        dataset_name=session.get("dataset_name", "Placement prediction dataset"),
+        criterion=criterion,
+        max_depth=max_depth,
+        dt_data=dt_clf,
+        dt_reg=dt_reg,
+        dt_diagrams=dt_diagrams,
+        rf_data=rf_data,
+        rf_diagrams=rf_diagrams,
+        bv_data=bv_data,
+        candidate_inputs=candidate_inputs,
+        selected_predictor=selected_predictor,
+        tree_prediction=tree_prediction,
+        active_folder=active_folder,
+    )
+
+
+@app.route("/boosting_models", methods=["GET", "POST"])
+@app.route("/boosting-models", methods=["GET", "POST"])
+def boosting_models_page():
+    raw_df = load_data(current_dataset_path())
+    cleaned_df, _ = clean_data(raw_df, save=False)
+    dataset_key = get_dataset_cache_key()
+    
+    req_form = request.form if request.method == "POST" else {}
+    action = req_form.get("action", "")
+    
+    selected_predictor = req_form.get("predictor_model", "gradient_boosting")
+    candidate_inputs = {
+        "CGPA": float(req_form.get("CGPA", 7.8)),
+        "CodingTestScore": float(req_form.get("CodingTestScore", 75.0)),
+        "MockInterviewScore": float(req_form.get("MockInterviewScore", 70.0)),
+        "AptitudeTestScore": float(req_form.get("AptitudeTestScore", 72.0)),
+        "AttendancePercent": float(req_form.get("AttendancePercent", 85.0)),
+        "SoftSkillsRating": float(req_form.get("SoftSkillsRating", 4.0)),
+        "Internships": float(req_form.get("Internships", 2)),
+        "Projects": float(req_form.get("Projects", 3)),
+    }
+    
+    # 1. Boosting models (AdaBoost & Gradient Boosting) (cached)
+    boosting_data, boosting_diagrams = get_cached_boosting(cleaned_df, dataset_key)
+    
+    # 2. Modern Boosted Trees (XGBoost, LightGBM, CatBoost) (cached)
+    modern_data, modern_diagrams = get_cached_modern_boosting(cleaned_df, dataset_key)
+    
+    # 3. Live Prediction
+    boosting_prediction = None
+    active_folder = request.args.get("folder", "boosting-fundamentals-output")
+    
+    if action == "predict_candidate":
+        active_folder = "boosting-predictor-output"
+        if selected_predictor in ["adaboost", "gradient_boosting"]:
+            boosting_prediction = predict_placement_boosting(boosting_data, candidate_inputs, model_type=selected_predictor)
+        else:
+            boosting_prediction = predict_placement_modern(modern_data, candidate_inputs, chosen_model=selected_predictor)
+            
+    return render_template(
+        "boosting_models.html",
+        dataset_name=session.get("dataset_name", "Placement prediction dataset"),
+        boosting_data=boosting_data,
+        boosting_diagrams=boosting_diagrams,
+        modern_data=modern_data,
+        modern_diagrams=modern_diagrams,
+        candidate_inputs=candidate_inputs,
+        selected_predictor=selected_predictor,
+        boosting_prediction=boosting_prediction,
+        active_folder=active_folder,
+    )
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=8080)
+
+
+        

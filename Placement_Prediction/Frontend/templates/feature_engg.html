@@ -5,8 +5,8 @@
 {% block content %}
 <section class="page-intro">
     <p class="eyebrow">NEXT STEP</p>
-    <h1>Feature Engineering & Supervised Models</h1>
-    <p>{{ dataset_name }} is cleaned, split into train/test data, encoded, scaled, and modeled with Linear &amp; Logistic Regression.</p>
+    <h1>Feature Engineering &amp; Supervised Models</h1>
+    <p>{{ dataset_name }} is cleaned, split into train/test data, encoded, scaled, and modeled with Linear, Logistic, and Regularized ML algorithms.</p>
 </section>
 
 <section class="card hero-card">
@@ -200,6 +200,41 @@
 
         <div class="folder-footer">
             <button class="show-folder-btn" type="button" data-target="logistic-output">
+                <span>👁️</span> <span class="btn-text">Show Model</span>
+            </button>
+        </div>
+    </article>
+
+    <!-- Folder 06: Regularization & Overfitting (Session 19) -->
+    <article class="folder-box" data-target="regularization-output">
+        <div>
+            <div class="folder-header">
+                <span class="folder-badge">📁 Folder 06</span>
+                <span class="hover-tip">Hover for details ℹ️</span>
+            </div>
+            <h2>Regularization &amp; Overfitting</h2>
+            <p class="folder-desc">Ridge (L2), Lasso (L1), Elastic Net, Hyperparameter Tuning (λ, α), Sparsity, &amp; Bias-Variance Curves.</p>
+
+            <div class="folder-topics">
+                <span class="topic-pill">1. Ridge (L2)</span>
+                <span class="topic-pill">2. Lasso (L1)</span>
+                <span class="topic-pill">3. Elastic Net</span>
+                <span class="topic-pill">4. Learning Curves</span>
+            </div>
+        </div>
+
+        <div class="folder-popup">
+            <h4>💡 Session 19: Regularization &amp; Overfitting</h4>
+            <ul>
+                <li><strong>Ridge (L2):</strong> <code>J(w) = ||Xw-y||² + λ||w||₂²</code>; shrinks weights proportionally, fixes multicollinearity.</li>
+                <li><strong>Lasso (L1):</strong> <code>J(w) = ||Xw-y||² + λ||w||₁</code>; diamond geometry creates exact 0 weights (feature selection).</li>
+                <li><strong>Elastic Net:</strong> <code>J(w) = ||Xw-y||² + λ[α||w||₁ + (1-α)||w||₂²]</code>; group sparsity for correlated features.</li>
+                <li><strong>Bias-Variance Trade-off:</strong> Regularization trades slight bias for major variance reduction, closing the overfitting gap.</li>
+            </ul>
+        </div>
+
+        <div class="folder-footer">
+            <button class="show-folder-btn" type="button" data-target="regularization-output">
                 <span>👁️</span> <span class="btn-text">Show Model</span>
             </button>
         </div>
@@ -487,6 +522,14 @@
                 <p style="font-size: 0.82rem; margin: -6px 0 10px; color: var(--muted);">Compares predicted test values against actual salaries along the 1:1 diagonal line.</p>
                 <img src="{{ url_for('serve_plot', filename=linear_diagrams.plot_actual_vs_pred) }}" alt="Actual vs Predicted Salary on Test Set">
             </article>
+
+            {% if linear_diagrams.plot_residuals %}
+            <article class="card chart-card">
+                <h2>Residual Diagnostics (Residuals vs Predicted)</h2>
+                <p style="font-size: 0.82rem; margin: -6px 0 10px; color: var(--muted);">Evaluates prediction error dispersion and checks homoscedasticity across salary levels.</p>
+                <img src="{{ url_for('serve_plot', filename=linear_diagrams.plot_residuals) }}" alt="Residual Diagnostics Plot">
+            </article>
+            {% endif %}
         </div>
     </section>
 
@@ -683,6 +726,14 @@
                 <p style="font-size: 0.82rem; margin: -6px 0 10px; color: var(--muted);">Shows the empirical fraction placed per CGPA bin squashed through the sigmoid function σ(z).</p>
                 <img src="{{ url_for('serve_plot', filename=logistic_diagrams.plot_s_curve) }}" alt="CGPA vs Placement S-Curve">
             </article>
+
+            {% if logistic_diagrams.plot_top_coefficients %}
+            <article class="card chart-card">
+                <h2>Standardized Coefficients &amp; Feature Impact</h2>
+                <p style="font-size: 0.82rem; margin: -6px 0 10px; color: var(--muted);">Direction and magnitude of feature weights driving placement odds.</p>
+                <img src="{{ url_for('serve_plot', filename=logistic_diagrams.plot_top_coefficients) }}" alt="Top Coefficients Bar Chart">
+            </article>
+            {% endif %}
         </div>
     </section>
 
@@ -775,6 +826,11 @@
     </section>
 </div>
 
+<!-- PANEL 07: Regularization & Overfitting Output (Session 19) -->
+<div class="topic-panel" id="regularization-output" hidden>
+    {% include "regularization_content.html" %}
+</div>
+
 <script>
     function openFolder(targetId, shouldScroll) {
         const panel = document.getElementById(targetId);
@@ -790,7 +846,7 @@
             b.classList.toggle("folder-open", isMatch);
             const btnText = b.querySelector(".btn-text");
             if (btnText) {
-                const label = targetId.includes("linear") || targetId.includes("logistic") ? "Model" : "Data";
+                const label = targetId.includes("linear") || targetId.includes("logistic") || targetId.includes("regularization") ? "Model" : "Data";
                 btnText.textContent = isMatch ? `Hide ${label}` : `Show ${label}`;
             }
         });
@@ -818,7 +874,7 @@
             box.classList.remove("folder-open");
             const btnText = box.querySelector(".btn-text");
             if (btnText) {
-                const label = targetId.includes("linear") || targetId.includes("logistic") ? "Model" : "Data";
+                const label = targetId.includes("linear") || targetId.includes("logistic") || targetId.includes("regularization") ? "Model" : "Data";
                 btnText.textContent = `Show ${label}`;
             }
         } else {
